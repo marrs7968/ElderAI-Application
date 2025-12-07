@@ -5,6 +5,7 @@ import { LessonContainer } from './LessonContainer';
 export const LiveVoiceLesson: React.FC = () => {
   const [isActive, setIsActive] = useState(false);
   const [status, setStatus] = useState("Tap the mic to start");
+  const [isReceivingAudio, setIsReceivingAudio] = useState(false);
   const cleanupRef = useRef<(() => Promise<void>) | null>(null);
   
   // Audio playback queue
@@ -19,13 +20,31 @@ export const LiveVoiceLesson: React.FC = () => {
     };
   }, []);
 
+  // Resume audio context if suspended (browser autoplay policy)
+  const ensureAudioContextResumed = async () => {
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      await audioContextRef.current.resume();
+      console.log("Audio context resumed");
+    }
+  };
+
   const handleToggle = async () => {
     if (isActive) {
-      if (cleanupRef.current) {
-        await cleanupRef.current();
-        cleanupRef.current = null;
-      }
+      // Immediately update UI to show we're stopping
       setIsActive(false);
+      setStatus("Stopping...");
+      
+      // Cleanup in the background, but don't block UI updates
+      if (cleanupRef.current) {
+        try {
+          await cleanupRef.current();
+        } catch (err) {
+          console.error("Error during cleanup:", err);
+        } finally {
+          cleanupRef.current = null;
+        }
+      }
+      
       setStatus("Tap the mic to start");
     } else {
       setStatus("Connecting...");
@@ -43,13 +62,26 @@ export const LiveVoiceLesson: React.FC = () => {
           return;
         }
 
-        const session = await startLiveSession((buffer) => {
+        // Ensure audio context is active
+        await ensureAudioContextResumed();
+
+        const session = await startLiveSession(async (buffer) => {
           // Playback logic
           if (!audioContextRef.current) return;
+          
+          // Ensure audio context is resumed
+          await ensureAudioContextResumed();
+          
           const ctx = audioContextRef.current;
           const source = ctx.createBufferSource();
           source.buffer = buffer;
           source.connect(ctx.destination);
+          
+          setIsReceivingAudio(true);
+          
+          source.onended = () => {
+            setIsReceivingAudio(false);
+          };
           
           const currentTime = ctx.currentTime;
           // Ensure we schedule after the previous one ends, or now if queue is empty
@@ -58,9 +90,11 @@ export const LiveVoiceLesson: React.FC = () => {
           nextStartTimeRef.current = start + buffer.duration;
         }, () => {
             setIsActive(false);
+            setIsReceivingAudio(false);
             setStatus("Session ended");
         }, (errorMsg) => {
             setIsActive(false);
+            setIsReceivingAudio(false);
             setStatus(`Error: ${errorMsg}`);
         });
         
@@ -95,11 +129,15 @@ export const LiveVoiceLesson: React.FC = () => {
       description="Computers can now listen and talk back, just like a phone call. Try saying 'Hello'!"
     >
       <div className="flex flex-col items-center justify-center h-full space-y-8 w-full">
-        <div className={`w-64 h-64 rounded-full flex items-center justify-center transition-all duration-500 ${isActive ? 'bg-green-100 animate-pulse' : 'bg-slate-100'}`}>
+        <div className={`w-64 h-64 rounded-full flex items-center justify-center transition-all duration-500 ${
+          isReceivingAudio ? 'bg-blue-200 animate-pulse' : isActive ? 'bg-green-100' : 'bg-slate-100'
+        }`}>
            <button 
             onClick={handleToggle}
-            className={`w-48 h-48 rounded-full shadow-2xl flex items-center justify-center transition-all transform active:scale-95 ${isActive ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-600 hover:bg-blue-700'}`}
+            disabled={false}
+            className={`w-48 h-48 rounded-full shadow-2xl flex items-center justify-center transition-all transform active:scale-95 cursor-pointer ${isActive ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-600 hover:bg-blue-700'}`}
             aria-label={isActive ? "Stop Listening" : "Start Listening"}
+            type="button"
           >
             <span className="material-icons text-6xl text-white">
               {isActive ? (

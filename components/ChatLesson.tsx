@@ -28,7 +28,7 @@ export const ChatLesson: React.FC = () => {
     setIsLoading(true);
 
     try {
-        // Prepare history for API
+        // Prepare history for API (excluding the current user message)
         const history = messages.map(m => ({
             role: m.role,
             parts: [{ text: m.text }]
@@ -36,8 +36,13 @@ export const ChatLesson: React.FC = () => {
 
         const responseText = await sendChatMessage(history, input);
         setMessages(prev => [...prev, { role: 'model', text: responseText || "I'm sorry, I didn't catch that." }]);
-    } catch (e) {
-        setMessages(prev => [...prev, { role: 'model', text: "I'm having a little trouble thinking right now. Please try again." }]);
+    } catch (e: any) {
+        console.error("Chat error:", e);
+        const errorMsg = e?.message || e?.toString() || "Unknown error";
+        setMessages(prev => [...prev, { 
+            role: 'model', 
+            text: `I'm having a little trouble thinking right now. Error: ${errorMsg}. Please try again.` 
+        }]);
     } finally {
         setIsLoading(false);
     }
