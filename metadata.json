@@ -1,0 +1,8 @@
+{
+  "name": "ElderAI",
+  "description": "A simplified, accessible AI learning companion designed for the elderly to build trust and independence using Generative AI.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
