@@ -30,6 +30,19 @@ export const LiveVoiceLesson: React.FC = () => {
     } else {
       setStatus("Connecting...");
       try {
+        // Check for API key first
+        const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+        if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
+          setStatus("Error: API key not configured. Please create a .env.local file with GEMINI_API_KEY=your_key");
+          return;
+        }
+
+        // Check if getUserMedia is available
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          setStatus("Error: Microphone access not supported in this browser.");
+          return;
+        }
+
         const session = await startLiveSession((buffer) => {
           // Playback logic
           if (!audioContextRef.current) return;
@@ -46,14 +59,31 @@ export const LiveVoiceLesson: React.FC = () => {
         }, () => {
             setIsActive(false);
             setStatus("Session ended");
+        }, (errorMsg) => {
+            setIsActive(false);
+            setStatus(`Error: ${errorMsg}`);
         });
         
         cleanupRef.current = session.close;
         setIsActive(true);
         setStatus("Listening... Speak freely!");
-      } catch (err) {
-        console.error(err);
-        setStatus("Error accessing microphone.");
+      } catch (err: any) {
+        console.error("Microphone error:", err);
+        let errorMessage = "Error accessing microphone.";
+        
+        if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+          errorMessage = "Microphone permission denied. Please allow microphone access in your browser settings.";
+        } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
+          errorMessage = "No microphone found. Please connect a microphone and try again.";
+        } else if (err?.name === 'NotReadableError' || err?.name === 'TrackStartError') {
+          errorMessage = "Microphone is being used by another application. Please close other apps using the microphone.";
+        } else if (err?.message) {
+          errorMessage = `Error: ${err.message}`;
+        } else if (typeof err === 'string') {
+          errorMessage = `Error: ${err}`;
+        }
+        
+        setStatus(errorMessage);
         setIsActive(false);
       }
     }

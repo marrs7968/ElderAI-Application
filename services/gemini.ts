@@ -3,7 +3,8 @@ import { createBlob, decode, decodeAudioData, encode, blobToBase64 } from "./aud
 
 // --- CHAT (Lesson 2) ---
 export const sendChatMessage = async (history: { role: string, parts: { text: string }[] }[], newMessage: string) => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+  const ai = new GoogleGenAI({ apiKey });
   const chat = ai.chats.create({
     model: 'gemini-3-pro-preview',
     config: {
@@ -18,7 +19,8 @@ export const sendChatMessage = async (history: { role: string, parts: { text: st
 
 // --- QUICK HELP (Flash Lite) ---
 export const getQuickDefinition = async (term: string) => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+  const ai = new GoogleGenAI({ apiKey });
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash-lite-latest', // Explicitly using latest lite model
     contents: `Define "${term}" in one simple sentence for a grandmother. No jargon.`,
@@ -28,7 +30,8 @@ export const getQuickDefinition = async (term: string) => {
 
 // --- TRANSCRIPTION (Lesson 4) ---
 export const transcribeAudio = async (audioFile: File) => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+  const ai = new GoogleGenAI({ apiKey });
   const base64Audio = await blobToBase64(audioFile);
   
   const response = await ai.models.generateContent({
@@ -57,7 +60,8 @@ export const generateVeoVideo = async (imageFile: File, prompt: string) => {
   }
 
   // Create new instance to ensure key is fresh
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+  const ai = new GoogleGenAI({ apiKey });
   const base64Image = await blobToBase64(imageFile);
 
   let operation = await ai.models.generateVideos({
@@ -93,16 +97,29 @@ export const generateVeoVideo = async (imageFile: File, prompt: string) => {
 // This function needs to return cleanup logic
 export const startLiveSession = async (
   onAudioData: (buffer: AudioBuffer) => void,
-  onClose: () => void
+  onClose: () => void,
+  onError?: (error: string) => void
 ) => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
+    throw new Error("API key not configured. Please create a .env.local file with GEMINI_API_KEY=your_key");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
   
   const inputAudioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
   const outputAudioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 24000});
   
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err: any) {
+    // Re-throw with more context
+    throw err;
+  }
   
   let currentSession: any = null;
+  let sessionError: Error | null = null;
 
   const sessionPromise = ai.live.connect({
     model: 'gemini-2.5-flash-native-audio-preview-09-2025',
@@ -119,6 +136,8 @@ export const startLiveSession = async (
           sessionPromise.then((session) => {
             currentSession = session;
             session.sendRealtimeInput({ media: pcmBlob });
+          }).catch((err) => {
+            console.error("Error sending audio:", err);
           });
         };
         
@@ -143,6 +162,12 @@ export const startLiveSession = async (
       },
       onerror: (err) => {
         console.error("Session error", err);
+        const errorMsg = err?.message || err?.toString() || "Unknown error occurred";
+        sessionError = new Error(`Live session error: ${errorMsg}`);
+        if (onError) {
+          onError(errorMsg);
+        }
+        onClose();
       }
     },
     config: {
@@ -152,6 +177,16 @@ export const startLiveSession = async (
       },
       systemInstruction: 'You are a friendly, slow-speaking companion helping an elderly person learn about technology. Be very brief.',
     },
+  });
+
+  // Check if session promise rejects immediately
+  sessionPromise.catch((err) => {
+    console.error("Failed to create live session:", err);
+    sessionError = err;
+    if (onError) {
+      onError(err?.message || err?.toString() || "Failed to connect to AI service");
+    }
+    stream.getTracks().forEach(track => track.stop());
   });
 
   return {
