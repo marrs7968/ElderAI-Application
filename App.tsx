@@ -43,8 +43,10 @@ export default function App() {
     try {
         const def = await getQuickDefinition(quickSearch);
         setQuickResult(def || "Not found.");
-    } catch {
-        setQuickResult("Could not find definition.");
+    } catch (err: any) {
+        console.error("Quick lookup error:", err);
+        const errorMsg = err?.message || "Could not find definition.";
+        setQuickResult(errorMsg);
     }
   };
 
